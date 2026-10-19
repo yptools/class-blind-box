@@ -99,6 +99,16 @@ textarea{width:100%;min-height:130px;resize:vertical;border:2px solid #e7eaf2;bo
   <div class="sub">名字面向大家 · 成绩藏在背面 · 每个人都有自己的时刻 ✨</div>
 </header>
 <main class="wrap">
+  <section class="panel" id="cloudAuthPanel">
+    <div class="toolbar" style="justify-content:space-between">
+      <div><strong>☁️ Firebase 云端同步</strong><div id="authStatus" class="small" style="margin:5px 0 0;text-align:left">尚未登录老师账号</div></div>
+      <div class="toolbar">
+        <button class="primary" id="googleLoginBtn">使用 Google 登录</button>
+        <button class="muted" id="googleLogoutBtn" style="display:none">退出登录</button>
+        <button class="soft" id="cloudSyncBtn" style="display:none">☁️ 立即同步</button>
+      </div>
+    </div>
+  </section>
   <section class="panel">
     <h2 style="margin:0 0 12px">📚 班级资料库</h2>
     <p style="margin:0 0 12px;color:#647087">每个班级独立保存名单、分数和抽选状态。建议定期下载备份，避免浏览器资料被清除。</p>
@@ -155,7 +165,26 @@ textarea{width:100%;min-height:130px;resize:vertical;border:2px solid #e7eaf2;bo
   </section>
   <div class="small">💡 小提醒：分数只会在老师选择 SHOW 后出现。已抽过的名字会变灰，不会再次被抽中。</div>
 </main>
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js";
+import { getFirestore, collection, doc, getDocs, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js";
+const firebaseConfig = {
+  apiKey: "AIzaSyBAEHYoqXznmLlbQze9pSAl3mKcXauJX38",
+  authDomain: "class-blind-box.firebaseapp.com",
+  projectId: "class-blind-box",
+  storageBucket: "class-blind-box.firebasestorage.app",
+  messagingSenderId: "686263338575",
+  appId: "1:686263338575:web:4d34006defb322eeac0c3a",
+  measurementId: "G-L2P3C9M4NY"
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
+const googleProvider = new GoogleAuthProvider();
+const ALLOWED_TEACHER_EMAIL = "leeyeeping6179@gmail.com";
+let cloudReady = false;
+let cloudSyncBusy = false;
 const $=id=>document.getElementById(id);
 let students=[], currentId=null, busy=false, order=[];
 const colors=['#ffd9e5','#d9efff','#ffe8a3','#e6ddff','#d8f5df'];
@@ -261,9 +290,15 @@ let classBook={}, activeClass='';
 function saveBook(){
   try {
     localStorage.setItem(STORE_KEY,JSON.stringify(classBook));
-    $('saveStatus').textContent='✅ 已保存：'+activeClass+' · '+new Date().toLocaleTimeString();
+    $('saveStatus').textContent='✅ 已保存到本机：'+activeClass+' · '+new Date().toLocaleTimeString();
   } catch(e) {
-    $('saveStatus').textContent='⚠️ 浏览器储存失败，请立即下载备份文件。';
+    $('saveStatus').textContent='⚠️ 浏览器储存空间不足或被限制，请立即下载备份。';
+  }
+  if (cloudReady && auth.currentUser && auth.currentUser.email === ALLOWED_TEACHER_EMAIL) {
+    syncAllToCloud().catch(err => {
+      console.error(err);
+      $('authStatus').textContent='云端同步失败：'+(err.code || err.message || '请检查登录与 Firestore Rules');
+    });
   }
 }
 function saveCurrentClass(){
@@ -281,7 +316,9 @@ function loadClass(name){
   activeClass=name;
   const saved=classBook[name];
   $('dataInput').value=saved.raw||'';
-  const parsed=parseInput();if(!parsed)return;
+  let parsed;
+  if (!$('dataInput').value.trim() && Array.isArray(saved.students) && saved.students.length===0) parsed=[];
+  else { parsed=parseInput(); if(!parsed)return; }
   students=parsed;
   if(Array.isArray(saved.students)){
     students.forEach(s=>{const old=saved.students.find(x=>x.name===s.name&&Number(x.score)===s.score);if(old)s.used=!!old.used;});
@@ -368,6 +405,78 @@ $('importFile').addEventListener('change',async e=>{
   e.target.value='';
 });
 window.addEventListener('beforeunload',saveCurrentClass);
+// Cloud sync: each class is stored as a separate document for the authorized teacher.
+function classDocId(name) { return encodeURIComponent(name).replaceAll('.', '%2E'); }
+function saveBookLocalOnly() { try { localStorage.setItem(STORE_KEY, JSON.stringify(classBook)); } catch(e) {} }
+async function syncAllToCloud() {
+  if (!cloudReady || !auth.currentUser || auth.currentUser.email !== ALLOWED_TEACHER_EMAIL || cloudSyncBusy) return;
+  cloudSyncBusy = true;
+  try {
+    const col = collection(db, 'teachers', auth.currentUser.uid, 'classes');
+    const existing = await getDocs(col);
+    const wanted = new Set(Object.keys(classBook).map(classDocId));
+    for (const snap of existing.docs) if (!wanted.has(snap.id)) await deleteDoc(snap.ref);
+    for (const [name, data] of Object.entries(classBook)) {
+      await setDoc(doc(col, classDocId(name)), {
+        name, raw: data.raw || '', students: Array.isArray(data.students) ? data.students : [],
+        updatedAt: new Date().toISOString()
+      });
+    }
+    $('saveStatus').textContent='☁️ 已同步到 Firebase：'+new Date().toLocaleTimeString();
+  } finally { cloudSyncBusy = false; }
+}
+async function loadCloudData() {
+  if (!auth.currentUser || auth.currentUser.email !== ALLOWED_TEACHER_EMAIL) throw new Error('此 Google 账号没有老师权限。');
+  const col = collection(db, 'teachers', auth.currentUser.uid, 'classes');
+  const snap = await getDocs(col);
+  if (!snap.empty) {
+    const cloudBook = {};
+    snap.forEach(d => { const v=d.data(); if (v && typeof v.name==='string') cloudBook[v.name]={raw:v.raw||'',students:Array.isArray(v.students)?v.students:[]}; });
+    classBook = cloudBook;
+    activeClass = Object.keys(classBook)[0] || '';
+    saveBookLocalOnly();
+    if (activeClass) loadClass(activeClass);
+    else { students=[]; order=[]; $('dataInput').value=''; refreshClassSelect(); render(); }
+    $('authStatus').textContent='已登录 '+auth.currentUser.email+' · 已载入云端班级';
+  } else {
+    $('authStatus').textContent='首次同步：正在把本机班级资料备份到云端…';
+    await syncAllToCloud();
+    $('authStatus').textContent='已登录 '+auth.currentUser.email+' · 班级资料已同步';
+  }
+}
+$('googleLoginBtn').addEventListener('click', async () => {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    if (result.user.email !== ALLOWED_TEACHER_EMAIL) {
+      await signOut(auth);
+      alert('这个 Google 账号没有老师权限，请使用指定的老师账号登录。');
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Google 登录失败：'+(err.code || err.message)+'。若提示 unauthorized-domain，请在 Firebase Authentication → Settings → Authorized domains 加入你的 GitHub Pages 域名。');
+  }
+});
+$('googleLogoutBtn').addEventListener('click', async () => { await saveCurrentClass(); await signOut(auth); });
+$('cloudSyncBtn').addEventListener('click', async () => {
+  try { await saveCurrentClass(); await syncAllToCloud(); alert('班级资料已同步到 Firebase。'); }
+  catch(err) { alert('同步失败：'+(err.code || err.message)); }
+});
+onAuthStateChanged(auth, async user => {
+  cloudReady = false;
+  if (!user) {
+    $('authStatus').textContent='尚未登录老师账号；资料暂存在当前浏览器。';
+    $('googleLoginBtn').style.display=''; $('googleLogoutBtn').style.display='none'; $('cloudSyncBtn').style.display='none';
+    return;
+  }
+  if (user.email !== ALLOWED_TEACHER_EMAIL) {
+    await signOut(auth); $('authStatus').textContent='此账号没有老师权限。'; return;
+  }
+  $('authStatus').textContent='老师已登录，正在读取云端班级…';
+  $('googleLoginBtn').style.display='none'; $('googleLogoutBtn').style.display=''; $('cloudSyncBtn').style.display='';
+  cloudReady = true;
+  try { await loadCloudData(); }
+  catch(err) { console.error(err); $('authStatus').textContent='云端读取失败：'+(err.code || err.message)+'。请检查 Firestore Rules。'; }
+});
 // Move the result panel outside the grid container so fixed positioning covers the whole screen.
 document.body.appendChild($('result'));
 initClassBook();
