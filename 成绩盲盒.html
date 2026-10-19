@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>成绩盲盒｜课堂抽选</title>
+<style>
+:root{--ink:#26334a;--cream:#fffaf0;--pink:#ffd9e5;--blue:#d9efff;--yellow:#ffe8a3;--purple:#e6ddff;--green:#d8f5df}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Trebuchet MS","Microsoft YaHei",system-ui,sans-serif;color:var(--ink);background:radial-gradient(circle at 15% 10%,#fff1bd 0 8%,transparent 30%),radial-gradient(circle at 90% 20%,#e3eaff 0 10%,transparent 32%),#fffaf5;min-height:100vh}
+header{text-align:center;padding:24px 16px 12px}
+h1{font-size:clamp(1.7rem,5vw,2.7rem);margin:0 0 6px;letter-spacing:2px}
+.sub{opacity:.75}
+.wrap{width:min(1100px,94vw);margin:0 auto 36px}
+.panel{background:#ffffffd9;border:2px solid #fff;box-shadow:0 10px 30px #34415a12;border-radius:22px;padding:18px;margin:14px 0}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center}
+button{font:inherit;font-weight:800;border:0;border-radius:14px;padding:12px 18px;cursor:pointer;transition:transform .15s,filter .15s;box-shadow:0 4px 0 #26334a18}
+button:hover{filter:brightness(.98);transform:translateY(-1px)}button:active{transform:translateY(2px);box-shadow:none}
+.primary{background:#6b7df2;color:white;font-size:1.15rem;padding:14px 28px}.soft{background:var(--blue)}.pink{background:var(--pink)}.yellow{background:var(--yellow)}.green{background:var(--green)}.muted{background:#e6e8ed;color:#687083}
+.editor summary{font-weight:900;cursor:pointer;font-size:1.1rem}
+.editor p{margin:10px 0;color:#647087;font-size:.93rem}
+textarea{width:100%;min-height:130px;resize:vertical;border:2px solid #e7eaf2;border-radius:14px;padding:12px;font:inherit;line-height:1.6;background:#fff}
+.editor-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.status{text-align:center;font-weight:800;color:#6d7590;margin:12px 0 4px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px;margin-top:16px}
+.student-card{min-height:112px;position:relative;perspective:800px}
+.card-inner{position:relative;width:100%;height:112px;transform-style:preserve-3d;transition:transform .65s cubic-bezier(.2,.75,.25,1)}
+.student-card.flipped .card-inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;border:2px solid #fff;border-radius:18px;box-shadow:0 5px 12px #34415a12;display:flex;align-items:center;justify-content:center;text-align:center;padding:12px;backface-visibility:hidden;overflow:hidden;font-weight:900;word-break:break-word}
+.front{background:linear-gradient(135deg,#fff,#f4f0ff);font-size:1.12rem}
+.front:before{content:"✦";position:absolute;top:6px;left:10px;color:#b9aaff}
+.back{transform:rotateY(180deg);background:linear-gradient(135deg,#fff0f6,#fff7dc);flex-direction:column;gap:4px}
+.score{font-size:2.1rem;line-height:1}.score-label{font-size:.8rem;opacity:.7}
+.student-card.used .front{background:#e6e8ed;color:#a0a5b0;box-shadow:none}
+.student-card.used{filter:grayscale(.75);opacity:.68}
+.student-card.used:after{content:"已抽选";position:absolute;right:5px;top:5px;font-size:.65rem;background:#d4d7df;color:#747b8a;padding:3px 6px;border-radius:8px;z-index:3}
+.student-card.active .front{animation:pulse .45s infinite alternate;border-color:#8e8bff;box-shadow:0 0 0 5px #dcd9ff,0 0 24px #9e96ff}
+@keyframes pulse{from{transform:scale(.97)}to{transform:scale(1.03)}}
+#result{display:none;text-align:center;padding:24px 12px;position:relative;overflow:hidden;border-radius:22px;background:#fff;border:2px dashed #d9d9f8;margin-top:18px}
+#result.showing{display:block;animation:pop .45s both}
+@keyframes pop{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
+.result-name{font-size:clamp(1.7rem,6vw,3rem);font-weight:1000;margin:4px}
+.result-score{font-size:clamp(3rem,12vw,5rem);font-weight:1000;line-height:1.1;margin:12px}
+.result-msg{font-size:clamp(1.4rem,5vw,2.3rem);font-weight:1000}
+.emoji{font-size:clamp(2.5rem,8vw,4.5rem);margin:8px}
+.choice{display:none;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+.choice.visible{display:flex}
+.choice button{min-width:140px;font-size:1.08rem}
+.small{font-size:.82rem;color:#778096;text-align:center;margin:12px}
+.confetti{position:fixed;top:-20px;width:10px;height:15px;z-index:100;pointer-events:none;animation:fall 2.7s linear forwards}
+@keyframes fall{to{transform:translateY(110vh) rotate(800deg);opacity:.8}}
+.burst{position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;font-size:3rem;animation:burst .9s ease-out forwards}
+@keyframes burst{0%{transform:scale(.1);opacity:0}45%{transform:scale(1.7);opacity:1}100%{transform:scale(2.3);opacity:0}}
+@media(max-width:520px){.panel{padding:13px}.cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.face{padding:8px}.toolbar button{flex:1}}
+
+/* True full-screen result overlay: detached from the student grid */
+#result.showing {
+  display:flex !important;
+  position:fixed !important;
+  inset:0 !important;
+  z-index:99999 !important;
+  width:100vw !important;
+  height:100vh !important;
+  height:100dvh !important;
+  margin:0 !important;
+  padding:3vh 4vw !important;
+  box-sizing:border-box !important;
+  border:0 !important;
+  border-radius:0 !important;
+  background:rgba(48,52,64,.90) !important;
+  color:#fff !important;
+  overflow:hidden !important;
+  flex-direction:column !important;
+  justify-content:center !important;
+  align-items:center !important;
+}
+#result.showing .result-name {
+  display:block !important;
+  width:min(92vw,1250px) !important;
+  max-width:92vw !important;
+  font-size:clamp(2.8rem,10vw,8rem) !important;
+  line-height:1.05 !important;
+  margin:0 auto 2vh !important;
+  padding:2vh 2vw !important;
+  color:#26334a !important;
+  background:linear-gradient(135deg,#fff,#f3efff) !important;
+  border:4px solid #fff !important;
+  border-radius:clamp(18px,3vw,38px) !important;
+  box-shadow:0 18px 60px #0005 !important;
+  overflow-wrap:anywhere !important;
+}
+#result.showing #resultContent { width:min(90vw,1100px) !important; }
+
+</style>
+</head>
+<body>
+<header>
+  <h1>🎁 成绩盲盒</h1>
+  <div class="sub">名字面向大家 · 成绩藏在背面 · 每个人都有自己的时刻 ✨</div>
+</header>
+<main class="wrap">
+  <section class="panel">
+    <h2 style="margin:0 0 12px">📚 班级资料库</h2>
+    <p style="margin:0 0 12px;color:#647087">每个班级独立保存名单、分数和抽选状态。建议定期下载备份，避免浏览器资料被清除。</p>
+    <div class="toolbar" style="justify-content:flex-start">
+      <select id="classSelect" aria-label="选择班级" style="flex:1;min-width:150px;padding:12px;border:2px solid #e7eaf2;border-radius:12px;font:inherit;background:white"></select>
+      <button class="soft" id="newClassBtn">＋ 新增班级</button>
+      <button class="yellow" id="saveClassBtn">💾 保存当前班级</button>
+    </div>
+    <div class="editor-actions">
+      <button class="soft" id="backupBtn">⬇️ 备份全部班级</button>
+      <button class="soft" id="importBtn">⬆️ 导入备份</button>
+      <input id="importFile" type="file" accept=".json,application/json" style="display:none">
+      <button class="muted" id="deleteClassBtn">删除当前班级</button>
+    </div>
+    <div id="saveStatus" class="small" style="margin-bottom:0">资料会自动保存在此浏览器；请定期下载备份。</div>
+  </section>
+  <section class="panel editor">
+    <details>
+      <summary>⚙️ 编辑学生名单与分数</summary>
+      <p>每行一位学生，格式：<b>学生名字,分数</b>。例如：小明,78。可以直接覆盖示例内容，再按「更新名单」。</p>
+      <textarea id="dataInput" aria-label="学生名单和分数">学生 A,78
+学生 B,45
+学生 C,92
+学生 D,36
+学生 E,65
+学生 F,50</textarea>
+      <div class="editor-actions">
+        <button class="soft" id="updateBtn">更新名单</button>
+        <button class="muted" id="resetBtn">重置抽选状态</button>
+        <button class="muted" id="exportBtn">导出名单</button>
+      </div>
+      <p>提示：每个班级独立保存。请使用学生代号或姓名缩写也可以；「不展示」时不会公开分数。为防止资料被清除，请定期点击上方「备份全部班级」下载 JSON 文件。</p>
+    </details>
+  </section>
+  <section class="panel">
+    <div class="toolbar">
+      <button class="primary" id="openBtn">🎲 OPEN！抽一个名字</button>
+      <button class="soft" id="shuffleBtn">🔀 打乱名单显示</button>
+    </div>
+    <div class="status" id="status">准备好了吗？点击 OPEN 开始！</div>
+    <div class="cards" id="cards"></div>
+    <div id="result" aria-live="polite">
+      <div class="result-name" id="resultName"></div>
+      <div id="resultContent"></div>
+      <div class="choice" id="choice">
+        <button class="green" id="showBtn">👀 SHOW 展示成绩</button>
+        <button class="pink" id="dontBtn">🙈 DON'T SHOW</button>
+      </div>
+      <div class="toolbar" id="nextActions" style="display:none;margin-top:18px">
+        <button class="soft" id="nextBtn">下一位 ➜</button>
+        <button class="muted" id="closeResultBtn">收起结果</button>
+      </div>
+    </div>
+  </section>
+  <div class="small">💡 小提醒：分数只会在老师选择 SHOW 后出现。已抽过的名字会变灰，不会再次被抽中。</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let students=[], currentId=null, busy=false, order=[];
+const colors=['#ffd9e5','#d9efff','#ffe8a3','#e6ddff','#d8f5df'];
+function parseInput(){
+  const lines=$('dataInput').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const parsed=[];
+  for(const line of lines){
+    const parts=line.split(/[,，\t]/);
+    if(parts.length<2){alert('这一行格式不对：'+line+'\\n请使用「名字,分数」格式。');return null;}
+    const name=parts.slice(0,-1).join(',').trim(), score=Number(parts[parts.length-1].trim());
+    if(!name||!Number.isFinite(score)||score<0||score>100){alert('请检查名字或分数：'+line+'\\n分数需为 0–100。');return null;}
+    parsed.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random(),name,score,used:false});
+  }
+  if(!parsed.length){alert('请至少输入一位学生。');return null;}
+  return parsed;
+}
+function updateStudents(){
+  const parsed=parseInput();if(!parsed)return;
+  students=parsed;order=students.map(s=>s.id);currentId=null;
+  $('result').classList.remove('showing');$('choice').classList.remove('visible');$('nextActions').style.display='none';
+  render();$('status').textContent=`已载入 ${students.length} 位学生，准备抽选！`;
+  saveCurrentClass();
+}
+function render(){
+  const root=$('cards');root.innerHTML='';
+  order.forEach((id,i)=>{
+    const s=students.find(x=>x.id===id);if(!s)return;
+    const card=document.createElement('div');card.className='student-card'+(s.used?' used':'');card.dataset.id=s.id;
+    card.innerHTML=`<div class="card-inner"><div class="face front"></div><div class="face back"><div class="score"></div><div class="score-label">分数</div></div></div>`;
+    card.querySelector('.front').textContent=s.name;
+    card.querySelector('.back .score').textContent=s.score;
+    card.querySelector('.front').style.background=s.used?'#e6e8ed':`linear-gradient(135deg,#fff,${colors[i%colors.length]})`;
+    root.appendChild(card);
+  });
+}
+function confetti(){
+  const symbols=['🎉','✨','🎊','⭐','💛'];
+  for(let i=0;i<75;i++){
+    const el=document.createElement('div');el.className='confetti';el.textContent=symbols[Math.floor(Math.random()*symbols.length)];
+    el.style.left=Math.random()*100+'vw';el.style.animationDelay=Math.random()*.7+'s';el.style.fontSize=(12+Math.random()*17)+'px';el.style.width='auto';el.style.height='auto';document.body.appendChild(el);setTimeout(()=>el.remove(),3500);
+  }
+}
+function getCard(id){return [...document.querySelectorAll('.student-card')].find(c=>c.dataset.id===id)}
+function openDraw(){
+  if(busy)return;
+  const available=students.filter(s=>!s.used);
+  if(!available.length){$('status').textContent='🎉 全部抽选完成！可以重置抽选状态再来一次。';return;}
+  busy=true;$('result').classList.remove('showing');$('choice').classList.remove('visible');$('nextActions').style.display='none';
+  document.querySelectorAll('.student-card').forEach(c=>c.classList.remove('active'));
+  const chosen=available[Math.floor(Math.random()*available.length)];
+  const candidates=available.map(s=>s.id);let tick=0, total=18+Math.floor(Math.random()*8);
+  $('status').textContent='名字正在闪烁……';
+  const timer=setInterval(()=>{
+    document.querySelectorAll('.student-card').forEach(c=>c.classList.remove('active'));
+    const id=candidates[Math.floor(Math.random()*candidates.length)], card=getCard(id);if(card)card.classList.add('active');
+    tick++;
+    if(tick>=total){
+      clearInterval(timer);document.querySelectorAll('.student-card').forEach(c=>c.classList.remove('active'));
+      currentId=chosen.id;const card=getCard(currentId);if(card)card.classList.add('active');
+      $('resultName').textContent='🎁 '+chosen.name;
+      $('resultContent').innerHTML='<div class="emoji">🤔</div><div class="result-msg">要打开这个盲盒吗？</div>';
+      $('result').classList.add('showing');$('choice').classList.add('visible');$('status').textContent='抽选成功！请让学生选择 SHOW 或 DON’T SHOW。';
+      busy=false;
+    }
+  },tick<total-5?105:210);
+}
+function markUsed(){
+  const s=students.find(x=>x.id===currentId);if(!s)return;
+  s.used=true;const card=getCard(s.id);if(card){card.classList.remove('active');card.classList.add('used');}
+  saveCurrentClass();
+  $('choice').classList.remove('visible');$('nextActions').style.display='flex';
+  $('status').textContent=`${s.name} 已完成抽选。`;
+}
+function showScore(){
+  const s=students.find(x=>x.id===currentId);if(!s)return;
+  const card=getCard(s.id);if(card)card.classList.add('flipped');
+  if(s.score>=50){
+    $('resultContent').innerHTML=`<div class="emoji">🏆🎉</div><div class="result-score">${s.score}<span style="font-size:1.5rem"> / 100</span></div><div class="result-msg">恭喜！继续保持！</div>`;
+    confetti();
+  }else{
+    $('resultContent').innerHTML=`<div class="emoji">💪💪</div><div class="result-score">${s.score}<span style="font-size:1.5rem"> / 100</span></div><div class="result-msg">继续加油！下次会更好！</div><div class="emoji" id="smileBurst">💪💪</div>`;
+    const b=document.createElement('div');b.className='burst';b.textContent='💪';$('result').appendChild(b);setTimeout(()=>b.remove(),950);
+  }
+  markUsed();
+}
+function dontShow(){
+  const s=students.find(x=>x.id===currentId);if(!s)return;
+  const card=getCard(s.id);if(card)card.classList.remove('flipped');
+  $('resultContent').innerHTML='<div class="emoji">🙈</div><div class="result-msg">Shy shy～分数保密！</div><div class="emoji">🤭💗</div>';
+  markUsed();
+}
+$('updateBtn').addEventListener('click',updateStudents);
+$('resetBtn').addEventListener('click',()=>{students.forEach(s=>s.used=false);currentId=null;render();$('result').classList.remove('showing');$('status').textContent='抽选状态已重置，可以重新开始！';});
+$('openBtn').addEventListener('click',openDraw);
+$('showBtn').addEventListener('click',showScore);
+$('dontBtn').addEventListener('click',dontShow);
+$('nextBtn').addEventListener('click',()=>{currentId=null;$('result').classList.remove('showing');$('choice').classList.remove('visible');$('nextActions').style.display='none';document.querySelectorAll('.student-card').forEach(c=>c.classList.remove('flipped','active'));openDraw();});
+$('closeResultBtn').addEventListener('click',()=>{$('result').classList.remove('showing');$('choice').classList.remove('visible');$('nextActions').style.display='none';});
+$('shuffleBtn').addEventListener('click',()=>{for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}render();});
+$('exportBtn').addEventListener('click',()=>{const blob=new Blob([students.map(s=>`${s.name},${s.score}`).join('\n')],{type:'text/plain;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='成绩盲盒名单.txt';a.click();URL.revokeObjectURL(a.href);});
+const STORE_KEY='gradeBlindBoxClasses_v1';
+let classBook={}, activeClass='';
+function saveBook(){
+  try {
+    localStorage.setItem(STORE_KEY,JSON.stringify(classBook));
+    $('saveStatus').textContent='✅ 已保存：'+activeClass+' · '+new Date().toLocaleTimeString();
+  } catch(e) {
+    $('saveStatus').textContent='⚠️ 浏览器储存失败，请立即下载备份文件。';
+  }
+}
+function saveCurrentClass(){
+  if(!activeClass || !classBook) return;
+  classBook[activeClass]={raw:$('dataInput').value,students:students.map(s=>({name:s.name,score:s.score,used:!!s.used}))};
+  saveBook();
+}
+function refreshClassSelect(){
+  const sel=$('classSelect');sel.innerHTML='';
+  Object.keys(classBook).forEach(name=>{const o=document.createElement('option');o.value=name;o.textContent=name;sel.appendChild(o)});
+  if(activeClass)sel.value=activeClass;
+}
+function loadClass(name){
+  if(!classBook[name])return;
+  activeClass=name;
+  const saved=classBook[name];
+  $('dataInput').value=saved.raw||'';
+  const parsed=parseInput();if(!parsed)return;
+  students=parsed;
+  if(Array.isArray(saved.students)){
+    students.forEach(s=>{const old=saved.students.find(x=>x.name===s.name&&Number(x.score)===s.score);if(old)s.used=!!old.used;});
+  }
+  order=students.map(s=>s.id);currentId=null;
+  $('result').classList.remove('showing');$('choice').classList.remove('visible');$('nextActions').style.display='none';
+  refreshClassSelect();render();$('status').textContent='当前班级：'+activeClass+'。点击 OPEN 开始抽选。';
+  saveBook();
+}
+function initClassBook(){
+  try{classBook=JSON.parse(localStorage.getItem(STORE_KEY)||'{}')}catch(e){classBook={}}
+  if(!classBook||typeof classBook!=='object'||Array.isArray(classBook))classBook={};
+  if(!Object.keys(classBook).length){
+    let old='';try{old=localStorage.getItem('gradeBlindBoxData')||''}catch(e){}
+    classBook['班级 1']={raw:old||$('dataInput').value,students:null};
+  }
+  activeClass=Object.keys(classBook)[0];refreshClassSelect();loadClass(activeClass);
+}
+$('classSelect').addEventListener('change',e=>{saveCurrentClass();loadClass(e.target.value)});
+$('newClassBtn').addEventListener('click',()=>{
+  // Use an in-page dialog instead of browser prompt, which may be blocked in some browsers.
+  const oldDialog=document.getElementById('newClassDialog');
+  if(oldDialog)oldDialog.remove();
+  const overlay=document.createElement('div');
+  overlay.id='newClassDialog';
+  overlay.style.cssText='position:fixed;inset:0;z-index:200000;background:rgba(42,47,61,.72);display:flex;align-items:center;justify-content:center;padding:18px;';
+  overlay.innerHTML=`<div style="width:min(92vw,440px);background:#fffaf5;color:#26334a;border-radius:22px;padding:24px;box-shadow:0 20px 70px #0005;">
+    <h2 style="margin:0 0 8px;font-size:1.4rem;">📚 新增班级</h2>
+    <p style="margin:0 0 14px;color:#647087;">请输入班级名称，例如：4A、4B、5C。</p>
+    <input id="newClassNameInput" type="text" placeholder="例如：Tahun 4A" maxlength="60" style="width:100%;padding:13px;border:2px solid #dfe3f2;border-radius:12px;font:inherit;box-sizing:border-box;">
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+      <button type="button" id="cancelNewClass" style="background:#e6e8ed;color:#26334a;">取消</button>
+      <button type="button" id="confirmNewClass" style="background:#6b7df2;color:white;">创建班级</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const input=overlay.querySelector('#newClassNameInput');
+  const close=()=>overlay.remove();
+  overlay.querySelector('#cancelNewClass').addEventListener('click',close);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)close()});
+  const create=()=>{
+    const n=input.value.trim();
+    if(!n){input.focus();input.style.borderColor='#e05252';input.placeholder='请先输入班级名称';return;}
+    if(classBook[n]){alert('这个班级已经存在，请换一个名称。');input.focus();return;}
+    saveCurrentClass();
+    classBook[n]={raw:'',students:null};
+    activeClass=n;
+    $('dataInput').value='';
+    students=[];order=[];currentId=null;
+    saveBook();refreshClassSelect();render();
+    $('result').classList.remove('showing');$('choice').classList.remove('visible');$('nextActions').style.display='none';
+    $('status').textContent='班级「'+n+'」已创建，请输入学生名单与分数。';
+    close();
+    // Put the editor in view/open state so the teacher can enter this class's roster.
+    const details=document.querySelector('.editor details');if(details)details.open=true;
+    $('dataInput').focus();
+  };
+  overlay.querySelector('#confirmNewClass').addEventListener('click',create);
+  input.addEventListener('keydown',e=>{if(e.key==='Enter')create();if(e.key==='Escape')close()});
+  setTimeout(()=>input.focus(),30);
+});
+$('saveClassBtn').addEventListener('click',saveCurrentClass);
+$('deleteClassBtn').addEventListener('click',()=>{
+  if(Object.keys(classBook).length<2){alert('至少保留一个班级。');return;}
+  if(!confirm('确定删除「'+activeClass+'」的全部资料吗？此操作无法撤销。'))return;
+  delete classBook[activeClass];activeClass=Object.keys(classBook)[0];saveBook();refreshClassSelect();loadClass(activeClass);
+});
+$('backupBtn').addEventListener('click',()=>{
+  saveCurrentClass();
+  const blob=new Blob([JSON.stringify({app:'成绩盲盒',version:1,classes:classBook},null,2)],{type:'application/json;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='成绩盲盒_全部班级备份.json';a.click();URL.revokeObjectURL(a.href);
+  $('saveStatus').textContent='📦 已下载全部班级备份，请妥善保存。';
+});
+$('importBtn').addEventListener('click',()=>$('importFile').click());
+$('importFile').addEventListener('change',async e=>{
+  const file=e.target.files&&e.target.files[0];if(!file)return;
+  try{
+    const obj=JSON.parse(await file.text()), incoming=obj.classes||obj;
+    if(!incoming||typeof incoming!=='object'||Array.isArray(incoming))throw new Error();
+    if(!confirm('导入会合并班级；同名班级将被备份内容覆盖。继续吗？'))return;
+    Object.assign(classBook,incoming);activeClass=Object.keys(incoming)[0]||activeClass;
+    saveBook();refreshClassSelect();loadClass(activeClass);$('saveStatus').textContent='✅ 备份已导入。';
+  }catch(err){alert('备份文件无法读取，请选择成绩盲盒导出的 JSON 文件。');}
+  e.target.value='';
+});
+window.addEventListener('beforeunload',saveCurrentClass);
+// Move the result panel outside the grid container so fixed positioning covers the whole screen.
+document.body.appendChild($('result'));
+initClassBook();
+</script>
+</body>
+</html>
